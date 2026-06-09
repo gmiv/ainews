@@ -1,5 +1,7 @@
 # ai_news_feed
 
+![ai_news_feed — a colorful, AI-enriched terminal news reader](docs/screenshot.png)
+
 A colorful, geometric curses TUI for AI news. Pulls ~30 RSS feeds in parallel,
 enriches them with **GPT-5.4** via the OpenAI **Responses API**, and presents
 everything as a stacked composite: a scrolling **marquee** of the day's most
