@@ -8,6 +8,20 @@ side-by-side 🌐 **THEME** and 🔎 **LIVE CONTEXT** panels, and a **two-pane
 browser** — topic clusters on the left, that topic's stories on the right —
 where Space/Enter opens a framed **story page**.
 
+## Quick start (no global install)
+
+```bash
+git clone https://github.com/gmiv/ainews && cd ainews
+./run            # first launch builds an isolated .venv, installs deps, then runs
+```
+
+`./run` (and `python ai_news_feed.py`) create an **isolated virtualenv**, install
+everything into it, and run inside it — your global / system Python is never
+touched. On WSL the venv is placed on the Linux filesystem (`~/.cache/ainews/…`,
+not the slow Windows drive); on native Linux/macOS it's a local `.venv`.
+Useful: `./run --setup` (build only), `make test`, `python ai_news_feed.py --clean`
+(remove the venv). Prefer a global command? Use the pipx install below.
+
 ## Install
 
 ```bash

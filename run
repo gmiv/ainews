@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Zero-setup launcher: bootstraps a project-local .venv (so your global Python
+# stays clean) and runs ainews inside it. Pass --setup to only build the venv.
+exec python3 "$(dirname "$0")/ai_news_feed.py" "$@"
