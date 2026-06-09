@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ainews"
+description = "A colorful, AI-enriched terminal news reader (curses TUI) powered by GPT-5.4."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "gmo" }]
+keywords = ["news", "rss", "tui", "curses", "ai", "gpt", "terminal", "aggregator"]
+dynamic = ["version"]
+dependencies = [
+    "feedparser>=6.0",
+    "windows-curses; sys_platform == 'win32'",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console :: Curses",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Topic :: Terminals",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+]
+
+# Optional extras — the code degrades gracefully when these are absent.
+[project.optional-dependencies]
+llm = ["openai>=1.66"]
+reader = ["trafilatura>=1.8", "requests>=2.28", "beautifulsoup4>=4.11"]
+all = ["openai>=1.66", "trafilatura>=1.8", "requests>=2.28", "beautifulsoup4>=4.11"]
+dev = ["pytest>=7"]
+
+[project.scripts]
+ainews = "ainews.app:main"
+
+[project.urls]
+Homepage = "https://github.com/gmiv/ainews"
+Repository = "https://github.com/gmiv/ainews"
+Issues = "https://github.com/gmiv/ainews/issues"
+
+[tool.setuptools]
+packages = ["ainews"]
+
+[tool.setuptools.dynamic]
+version = { attr = "ainews.__version__" }
