@@ -29,3 +29,4 @@ htmlcov/
 
 # App output (digests are written to the working directory)
 ai_news_digest_*.md
+.obsidian
