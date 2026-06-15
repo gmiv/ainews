@@ -5,8 +5,8 @@ enrichment annotates them (sentiment / topic), and the view-model + UI render
 them. Keeping one typed shape here is what lets every other module be developed
 and reasoned about independently.
 """
-from dataclasses import dataclass, asdict
-from typing import Optional
+from dataclasses import dataclass, asdict, field
+from typing import List, Optional
 
 # Valid sentiment labels. "neutral" is the safe default before classification.
 SENTIMENTS = ("hype", "concern", "neutral")
@@ -26,6 +26,7 @@ class Article:
     read: bool = False           # UI state; persisted by key via persist.Store
     bookmarked: bool = False     # UI state; persisted by key via persist.Store
     cluster_size: int = 1        # how many near-duplicate copies merged (corroboration)
+    concepts: List[str] = field(default_factory=list)  # knowledge-graph concept ids (tagged at load)
 
     @property
     def key(self) -> str:
@@ -41,6 +42,6 @@ class Article:
         fields = {
             "title", "published", "published_ts", "feed_name",
             "summary", "link", "sentiment", "topic", "read", "bookmarked",
-            "cluster_size",
+            "cluster_size", "concepts",
         }
         return cls(**{k: v for k, v in d.items() if k in fields})

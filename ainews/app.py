@@ -16,7 +16,7 @@ Design goals:
 import curses
 import locale
 
-from . import config, feeds, analysis, enrich, importance, ui
+from . import config, feeds, analysis, enrich, importance, ui, mastery
 from .cache import Cache
 from .llm import LLMClient
 from .loading import Spinner, note
@@ -140,6 +140,26 @@ def run():
             except Exception as e:  # noqa: BLE001
                 note(f"Top-story grounding skipped: {e}")
 
+    # --- Tag stories onto the concept knowledge-graph (deliberate practice) --
+    # Cheap deterministic alias-matching links each story to concepts and marks
+    # them "encountered"; the Socratic tutor + knowledge-graph view read this.
+    mastery_store = None
+    if getattr(config, "ENABLE_MASTERY", True):
+        # Tagging is free + deterministic, so do it unconditionally — the
+        # store (persistence) is the only part that can fail, so guard just it.
+        seen = set()
+        for a in articles:
+            cids = mastery.tag_article(a)
+            a.concepts = sorted(cids)
+            seen |= cids
+        try:
+            mastery_store = mastery.MasteryStore()
+            if seen:
+                mastery_store.note_exposure(seen)
+        except Exception as e:  # noqa: BLE001 - degrade, never crash
+            mastery_store = None
+            note(f"Mastery store disabled: {e}")
+
     # --- Build interactive state + render -----------------------------------
     # The FeedState owns filtering/search/bookmarks/read; the UI queries and
     # mutates it, re-wrapping on change/resize. Bookmarks + read-state persist
@@ -157,6 +177,7 @@ def run():
         cache=cache,
         leaderboard=leaderboard,
         client=client,
+        mastery=mastery_store,
     )
     curses.wrapper(ui.curses_main, state)
 

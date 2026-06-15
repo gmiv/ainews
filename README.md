@@ -2,13 +2,19 @@
 
 ![ai_news_feed — a colorful, AI-enriched terminal news reader](docs/screenshot.png)
 
-A colorful, geometric curses TUI for AI news. Pulls ~30 RSS feeds in parallel,
+A colorful, geometric curses TUI for AI news. Pulls ~40 AI/ML RSS feeds in parallel,
 enriches them with **GPT-5.4** via the OpenAI **Responses API**, and presents
 everything as a stacked composite: a scrolling **marquee** of the day's most
 important story, the ⚡ **banner** (counts + one-word mood + sentiment mix),
 side-by-side 🌐 **THEME** and 🔎 **LIVE CONTEXT** panels, and a **two-pane
 browser** — topic clusters on the left, that topic's stories on the right —
 where Space/Enter opens a framed **story page**.
+
+It goes beyond reading: a **multi-turn chat** answers questions over the whole
+day or a single story, and a **deliberate-practice layer** — a **Socratic tutor**
+that grades your explanations (adaptive difficulty + spaced review) over a
+**concept knowledge-graph** of ~175 cognitive-architecture + ML topics — turns
+the feed into a path toward master-level understanding.
 
 ## Quick start (no global install)
 
@@ -51,16 +57,18 @@ export OPENAI_API_KEY_UTILS="sk-..."
 ```
 
 A cold run makes ~11 cached LLM calls (theme, one-word, batched classification,
-a 3-vote importance judge, and one `web_search` grounding); chat is one call per
-question. **No key? It still runs** — you get the raw, de-duplicated feed
-without the GPT layer. Everything tunable lives in
+a 3-vote importance judge, and one `web_search` grounding); chat and the
+Socratic tutor are on-demand — one call per question / graded answer. **No key?
+It still runs** — you get the raw, de-duplicated feed, and the knowledge map
+still tracks the concepts each story touches; only the GPT enrichment, chat, and
+tutor need a key. Everything tunable lives in
 [`ainews/config.py`](ainews/config.py).
 
 ## What it does
 
 | Stage | Detail |
 |-------|--------|
-| **Parallel fetch** | ~30 feeds fetched concurrently (thread pool) with a per-feed timeout + per-feed entry cap; dead feeds are skipped, not fatal. |
+| **Parallel fetch** | ~40 AI/ML feeds fetched concurrently (thread pool) with a per-feed timeout + per-feed entry cap; dead feeds are skipped, not fatal. |
 | **Disk cache** | Feeds cached 30 min, LLM output 6 h (`~/.cache/ai_news_feed`) — relaunches are instant and don't re-bill. |
 | **Loading spinner** | Live progress on every slow phase instead of a silent freeze. |
 | **De-dup** | Exact + fuzzy-title de-duplication (`difflib`) collapses the same story across sources. |
@@ -71,8 +79,11 @@ without the GPT layer. Everything tunable lives in
 | **TOPIC MIX dashboard** | A heavy-boxed, block-bar chart (`█▉▌`) of the day's topic distribution with rank badges + emoji. |
 | **Top-5 leaderboard marquee** | A scrolling ticker that cycles the day's top-5 most important stories (with `①②③` rank badges), chosen by a hybrid score — theme-centrality + cross-source corroboration + recency + source authority — with the #1 re-ranked by a shuffled, majority-vote GPT-5.4 judge. The full ranked list also appears in the `t` overview. |
 | **Live grounding** | The #1 story is fact-checked/expanded with GPT-5.4's built-in `web_search` tool, with real clickable citations. |
-| **Chat with your feed** | `a` opens a Q&A overlay — ask anything about today's news; answered over the curated, classified day by **gpt-5.4-mini** with live web search + citations (markdown, scrollable, ask follow-ups). |
+| **Chat with your feed** | `a` opens a **multi-turn** Q&A overlay — ask anything about today's news; answered over the curated, classified day by **gpt-5.4-mini** with live web search + citations (markdown, scrollable). Follow-ups (`a`/`/`) carry the **conversation history** so the model stays in context; the whole thread accumulates on screen, and `x` clears it to free tokens. |
+| **Ask about *this* story** | Inside the story page, `a` opens the *same* multi-turn Q&A overlay but **scoped to the one story** — grounded in its summary and the scraped full-article text (auto-fetched, cached), plus live web search to fill gaps. The feed-level `a` answers across all stories; this one stays on the story in front of you. |
 | **In-app reader** | In the story page, `r` scrapes the full article (via `trafilatura`, as **markdown**) and renders it **colorfully** — headings, **bold**, *italic*, `code`, links, blockquotes, lists — inline & scrollable; `o`/Enter opens it in your real browser — WSL-aware (`explorer.exe`/`wslview`/PowerShell), so links actually open under WSL. |
+| **Socratic tutor (mastery)** | `s` turns the selected story into deliberate practice: it picks the weakest concept the story touches, asks you to **explain it**, then **grades** your answer (score · what you nailed · misconceptions · a model answer · a deeper follow-up). Each grade updates your per-concept *understanding* and reschedules review. Difficulty is **adaptive** — it tracks your level per concept and pushes from foundations → trade-offs → frontier synthesis. |
+| **Knowledge map (mastery)** | `K` shows your **concept knowledge-graph** — ~175 cog-arch + ML concepts across 8 categories, each marked unseen ○ / encountered ◔ / reviewing ◑ / mastered ●, with coverage bars, gaps, and what's ⏰ due for review. Stories are auto-tagged onto it as you read. Progress persists in `~/.cache/ai_news_feed/mastery.json`. |
 | **Power tools** | In-app fuzzy search, source filter, bookmarks + read/unread (persisted across runs), and one-key Markdown digest export. |
 
 The whole renderer is **display-width aware** ([`textwidth.py`](textwidth.py)) so
@@ -85,9 +96,11 @@ on a timer (and rebuilds on terminal resize).
 |-----|--------|
 | `←/→` `h/l` · `Tab` | move focus between TOPICS and STORIES |
 | `↑/↓` `j/k` · `PgUp/PgDn` · `g/G` | move within the focused pane |
-| `Space` / `Enter` | open the story page → `o`/`Enter` browser · `r` read full article · `↑/↓` scroll · `b` ★ · `←`/`Esc` back |
+| `Space` / `Enter` | open the story page → `o`/`Enter` browser · `r` read full article · `a` ask about **this** story · `↑/↓` scroll · `b` ★ · `←`/`Esc` back |
 | `t` | overview: full theme / live context / top-5 leaderboard / topic-mix |
-| `a` | chat with your feed (ask a question; `a`/`/` to ask again, `Esc` to close) |
+| `s` | **Socratic study** on the selected story — explain a concept, get graded; adaptive difficulty + spaced review |
+| `K` | **knowledge map** — concept coverage (unseen→mastered), gaps, and what's due to review |
+| `a` | chat with your feed — ask across **all** stories; multi-turn (`a`/`/` follow-up · `x` clear history · `Esc` close). Inside a story page, `a` instead asks about just **that** story |
 | `/` | fuzzy search (Enter apply, Esc cancel) |
 | `f` | filter by source (picker) |
 | `b` / `B` | bookmark selected story · show bookmarks only |
@@ -124,14 +137,16 @@ textwidth.py      display-width helper (emoji/wide-glyph aware) for alignment
 feeds.py          parallel fetch · date filter · fuzzy de-dup (+ corroboration)
 analysis.py       pure stats (source counts, top words)
 llm.py            defensive Responses-API client (param degradation)
-enrich.py         theme / one-word / classify (batched) / web-search grounding
+enrich.py         theme / one-word / classify / grounding / chat / Socratic grading
+mastery.py        deliberate-practice core: concept graph state, adaptive difficulty, spaced review
+concepts_seed.py  the ~175-concept cog-arch + ML knowledge-graph taxonomy (reference data)
 markdown_render.py  rich markdown → colorful color segments
 wrapping.py       word wrapping of render lines (width-aware)
 importance.py     pick + rank the day's top stories (hybrid score + LLM judge)
 state.py          FeedState controller: topic axis / groups / search / filter / bookmarks / leaderboard
 persist.py        JSON store for bookmarks + read-state
 export.py         Markdown digest writer
-ui.py             two-pane curses browser (box primitive, panes, story page, chat, overview)
+ui.py             two-pane curses browser (panes, story page, chat, overview, Socratic tutor, knowledge map)
 openurl.py        WSL-aware "open in browser" (explorer.exe / wslview / …)
 reader.py         in-app article scraper (trafilatura → bs4 → stdlib fallback)
 loading.py        TTY-aware spinner

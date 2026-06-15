@@ -22,7 +22,7 @@ scrolls one cell per idle tick.
 import curses
 import time
 
-from . import colors, config, glyphs, textwidth, markdown_render, openurl, reader, enrich
+from . import colors, config, glyphs, textwidth, markdown_render, openurl, reader, enrich, mastery
 from .wrapping import word_wrap_line_segments
 
 # Minimum height (rows) the two-pane browser must keep; header panels drop to
@@ -274,7 +274,7 @@ def _slice_by_width(s, start_cells, span_cells):
     return "".join(out)
 
 
-def _draw_marquee(stdscr, row, leaderboard, W, offset):
+def _draw_marquee(stdscr, row, leaderboard, W, offset, x0=0):
     """Static label + right-to-left scrolling ribbon of ALL ranked top stories."""
     if W <= 0 or not leaderboard:
         return
@@ -291,7 +291,7 @@ def _draw_marquee(stdscr, row, leaderboard, W, offset):
     text = "   ◆   ".join(p for p in parts if p)
     label_shown = textwidth.clip(label, W)
     label_w = textwidth.width(label_shown)
-    _addstr(stdscr, row, 0, label_shown,
+    _addstr(stdscr, row, x0, label_shown,
             _attr_for(colors.MARQUEE_LABEL) | curses.A_BOLD)
     avail = W - label_w
     if avail <= 0 or not text.strip():
@@ -303,16 +303,16 @@ def _draw_marquee(stdscr, row, leaderboard, W, offset):
     start = int(offset) % rw
     reps = ((start + avail) // rw) + 2
     window = _slice_by_width(ribbon * reps, start, avail)
-    _addstr(stdscr, row, label_w, window, _attr_for(colors.MARQUEE))
+    _addstr(stdscr, row, x0 + label_w, window, _attr_for(colors.MARQUEE))
 
 
 # ── header regions ──────────────────────────────────────────────────────────
-def _draw_banner(stdscr, y, max_x, state):
+def _draw_banner(stdscr, y, max_x, state, x0=0):
     """The heavy ⚡ banner box: counts + one-word mood + sentiment mix."""
     n_stories = len(state.articles)
     n_topics = len(state.topic_order)
     title = f"{glyphs.SEC_TITLE} AI NEWS  ·  {n_stories} stories  ·  {n_topics} topics"
-    iy, ix, iw, ih = _draw_box(stdscr, y, 0, max_x, 3, title=title,
+    iy, ix, iw, ih = _draw_box(stdscr, y, x0, max_x, 3, title=title,
                                title_color=colors.BANNER,
                                border_color=colors.BANNER, style="heavy")
     sc = state.sentiment_counts()
@@ -326,17 +326,17 @@ def _draw_banner(stdscr, y, max_x, state):
     _draw_segments(stdscr, iy, ix, iw, segs)
 
 
-def _draw_theme_context(stdscr, y, max_x, h, state):
+def _draw_theme_context(stdscr, y, max_x, h, state, x0=0):
     """Side-by-side 🌐 THEME and 🔎 LIVE CONTEXT panels."""
     half = max_x // 2
     # THEME (left)
-    iy, ix, iw, ih = _draw_box(stdscr, y, 0, half, h, title=f"{glyphs.SEC_THEME} THEME",
+    iy, ix, iw, ih = _draw_box(stdscr, y, x0, half, h, title=f"{glyphs.SEC_THEME} THEME",
                                title_color=colors.H2, border_color=colors.H2,
                                style="round")
     theme_lines = _wrap_md(state.theme or "(no theme yet)", iw)
     _draw_rows(stdscr, iy, ix, iw, ih, theme_lines)
     # LIVE CONTEXT (right)
-    rx = half
+    rx = x0 + half
     rw = max_x - half
     iy, ix, iw, ih = _draw_box(stdscr, y, rx, rw, h,
                                title=f"{glyphs.SEC_CONTEXT} LIVE CONTEXT",
@@ -397,8 +397,8 @@ def _story_rows(state, arts, width):
 
 
 # ── status bar ──────────────────────────────────────────────────────────────
-_KEY_HINT = ("←/→ panes  ↑/↓ move  Space/Enter open  a ask  t overview  / search  "
-             "f source  b ★  m read  B/u views  e export  ? help  q quit")
+_KEY_HINT = ("←/→ panes  ↑/↓ move  Space open  a ask  s study  K map  t overview  "
+             "/ search  f source  b ★  m read  e export  ? help  q quit")
 
 
 def _draw_status_bar(stdscr, row, max_x, text):
@@ -478,7 +478,8 @@ def _show_story_page(stdscr, article, state):
     """Framed-card story page: scrollable, with an ``r`` reader mode.
 
     ``o``/Enter open the article in the real browser (WSL-aware), ``r`` scrapes
-    and shows the full article inline, ↑/↓ scroll, ``b`` bookmarks, ←/Esc back.
+    and shows the full article inline, ``a`` opens a multi-turn chat scoped to
+    THIS story, ↑/↓ scroll, ``b`` bookmarks, ←/Esc back.
     """
     try:
         state.mark_read(article)
@@ -494,6 +495,8 @@ def _show_story_page(stdscr, article, state):
     scroll = 0
     msg = None
     reader_on = bool(getattr(config, "ENABLE_READER", True))
+    ask_on = (bool(getattr(config, "ENABLE_CHAT", True))
+              and getattr(state, "client", None) is not None)
     try:
         while True:
             max_y, max_x = stdscr.getmaxyx()
@@ -531,8 +534,10 @@ def _show_story_page(stdscr, article, state):
                 read_lbl = ""
                 if reader_on:
                     read_lbl = "  r summary" if mode == "reader" else "  r read full"
+                ask_lbl = "  a ask" if ask_on else ""
                 more = "  ▾" if scroll < maxscroll else ""
-                hint = f"o/Enter browser{read_lbl}  ↑/↓ scroll  b ★  ←/Esc back{more}"
+                hint = (f"o/Enter browser{read_lbl}{ask_lbl}  "
+                        f"↑/↓ scroll  b ★  ←/Esc back{more}")
             _addstr(stdscr, iy + ih - 1, ix, textwidth.clip(hint, iw), curses.A_BOLD)
             stdscr.refresh()
 
@@ -553,6 +558,19 @@ def _show_story_page(stdscr, article, state):
             elif reader_on and k == ord('r'):
                 mode = "summary" if mode == "reader" else "reader"
                 scroll = 0
+            elif ask_on and k == ord('a'):
+                # Ask scoped to THIS story; reuse already-scraped reader text.
+                try:
+                    _show_story_chat(
+                        stdscr, state, article,
+                        reader_data if reader_loaded else None)
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        stdscr.timeout(-1)   # chat overlay reset it; we block
+                    except Exception:
+                        pass
             elif k in (curses.KEY_DOWN, ord('j')):
                 scroll += 1
             elif k in (curses.KEY_UP, ord('k')):
@@ -625,11 +643,12 @@ def _show_overview(stdscr, state):
             max_y, max_x = stdscr.getmaxyx()
             stdscr.erase()
             view = max_y - 1
+            cx = max(0, (max_x - w) // 2)        # center the reader block
             for i in range(view):
                 ri = scroll + i
                 if ri >= len(rows):
                     break
-                _draw_segments(stdscr, i, 0, max_x, rows[ri])
+                _draw_segments(stdscr, i, cx, w, rows[ri])
             _draw_status_bar(stdscr, max_y - 1, max_x,
                              "↑/↓ scroll   q/Esc back")
             stdscr.refresh()
@@ -658,82 +677,446 @@ def _draw_centered_frame(stdscr, text, color=colors.H2):
     stdscr.refresh()
 
 
-def _show_chat(stdscr, state):
-    """Chat-with-your-feed overlay: ask a question, get a cited answer.
+def _transcript_rows(turns, w, scope=""):
+    """Render the running conversation into segment rows + per-turn start rows.
 
-    ``a``/``/`` ask again, ↑/↓ PgUp/PgDn scroll, ``q``/Esc exit. Defensive:
-    needs ``state.client``; otherwise the caller surfaces a transient hint.
+    Returns ``(rows, starts)`` where ``starts[i]`` is the row index at which
+    turn ``i``'s question begins — used to scroll the newest turn into view.
+    Each turn is a ``{"question", "answer": {"text", "citations"}}`` dict. With
+    no turns (i.e. just after a clear) a single placeholder row is returned;
+    ``scope`` (e.g. "the feed" / "about this story") names what a fresh ``a``
+    will ask, so the cleared state still tells you which overlay you're in.
+    """
+    if not turns:
+        cleared = (f"(cleared — press a to ask {scope}, q to exit)" if scope
+                   else "(conversation cleared — a ask · q back)")
+        return [[(cleared, colors.NORMAL)]], []
+    rows, starts = [], []
+    for idx, t in enumerate(turns):
+        if idx > 0:                       # visible rule between turns
+            rows.append([("", 0)])
+            rows.append([("─" * max(1, min(w, 48)), colors.MDRULE)])
+            rows.append([("", 0)])
+        starts.append(len(rows))          # the question begins on this row
+        rows += _wrap_plain("❯ " + (t.get("question") or ""), w, colors.H1)
+        rows.append([("", 0)])
+        ans = t.get("answer") or {}
+        rows += _wrap_md(ans.get("text", ""), w)
+        cites = ans.get("citations") or []
+        if cites:
+            rows.append([("", 0)])
+            rows.append([("🔗 Sources:", colors.H2)])
+            for c in cites:
+                title = (c.get("title") or "") if isinstance(c, dict) else ""
+                url = (c.get("url") or "") if isinstance(c, dict) else str(c)
+                cite = f"{title} — {url}" if title else url
+                rows += _wrap_plain("➜ " + cite, w, colors.LINK)
+    return rows, starts
+
+
+def _chat_overlay(stdscr, state, label, answer_fn, scope=""):
+    """Reusable multi-turn Q&A overlay: a growing, scrollable conversation.
+
+    ``answer_fn(question, history)`` returns ``{"text", "citations"}``; both
+    chat flavors share this loop (feed-wide chat and ask-about-this-story), so
+    only the prompt ``label``, ``scope`` (named in the cleared-state hint), and
+    the answer source differ. The transcript accumulates until you leave:
+    ``a``/``/`` ask a follow-up (prior turns are re-sent so the model answers in
+    context), ``x`` clears the conversation (frees tokens), ↑/↓ PgUp/PgDn g/G
+    scroll, ``q``/Esc exit.
     """
     try:
         stdscr.timeout(-1)
     except Exception:
         pass
+    turns = []                 # [{"question", "answer": {"text","citations"}}]
+    scroll = 0
+    ask_next = True            # prompt immediately on entry
+    jump_to_last = False
     try:
         while True:
-            question = _prompt_input(stdscr, "Ask the feed: ")
-            if not question:
-                return
-            _draw_centered_frame(stdscr, "⏳ thinking…")
-            try:
-                ans = enrich.ask_feed(
-                    state.client, question, state.visible_articles(),
-                    getattr(state, "theme", ""), getattr(state, "grounding", None),
-                    getattr(state, "cache", None))
-            except Exception as exc:
-                ans = {"text": f"(could not answer: {exc})", "citations": []}
-            if not isinstance(ans, dict):
-                ans = {"text": str(ans), "citations": []}
+            # 1) Collect a question — the first one or a requested follow-up —
+            #    passing the prior turns so the model answers in context.
+            if ask_next:
+                ask_next = False
+                question = _prompt_input(stdscr, label)
+                if question:
+                    _draw_centered_frame(stdscr, "⏳ thinking…")
+                    try:
+                        ans = answer_fn(question, turns)
+                    except Exception as exc:
+                        ans = {"text": f"(could not answer: {exc})",
+                               "citations": []}
+                    if not isinstance(ans, dict):
+                        ans = {"text": str(ans), "citations": []}
+                    turns.append({"question": question, "answer": ans})
+                    jump_to_last = True
+                elif not turns:
+                    return     # cancelled before any conversation — close
 
-            # Build the scrollable result view.
+            # 2) Render the whole transcript.
             max_y, max_x = stdscr.getmaxyx()
             w = max(10, min(max_x, config.WRAP_LIMIT) - 2)
-            rows = []
-            rows += _wrap_plain(question, w, colors.H1)
-            rows.append([("", 0)])
-            rows += _wrap_md(ans.get("text", ""), w)
-            cites = ans.get("citations") or []
-            if cites:
-                rows.append([("", 0)])
-                rows.append([("🔗 Sources:", colors.H2)])
-                for c in cites:
-                    title = (c.get("title") or "") if isinstance(c, dict) else ""
-                    url = (c.get("url") or "") if isinstance(c, dict) else str(c)
-                    label = f"{title} — {url}" if title else url
-                    rows += _wrap_plain("➜ " + label, w, colors.LINK)
+            rows, starts = _transcript_rows(turns, w, scope)
+            view = max(1, max_y - 1)
+            maxscroll = max(0, len(rows) - view)
+            if jump_to_last and starts:
+                scroll = starts[-1]        # land on the newest question
+                jump_to_last = False
+            scroll = max(0, min(scroll, maxscroll))
 
-            scroll = 0
-            reask = False
-            while True:
-                max_y, max_x = stdscr.getmaxyx()
-                stdscr.erase()
-                view = max_y - 1
-                for i in range(view):
-                    ri = scroll + i
-                    if ri >= len(rows):
-                        break
-                    _draw_segments(stdscr, i, 0, max_x, rows[ri])
-                _draw_status_bar(stdscr, max_y - 1, max_x,
-                                 "↑/↓ scroll   a/ ask again   q/Esc back")
-                stdscr.refresh()
-                k = stdscr.getch()
-                if k in (curses.KEY_DOWN, ord('j')):
-                    scroll = min(max(0, len(rows) - view), scroll + 1)
-                elif k in (curses.KEY_UP, ord('k')):
-                    scroll = max(0, scroll - 1)
-                elif k == curses.KEY_NPAGE:
-                    scroll = min(max(0, len(rows) - view), scroll + view)
-                elif k == curses.KEY_PPAGE:
-                    scroll = max(0, scroll - view)
-                elif k in (curses.KEY_HOME, ord('g')):
-                    scroll = 0
-                elif k in (curses.KEY_END, ord('G')):
-                    scroll = max(0, len(rows) - view)
-                elif k in (ord('a'), ord('/')):
-                    reask = True
+            stdscr.erase()
+            cx = max(0, (max_x - w) // 2)        # center the conversation block
+            for i in range(view):
+                ri = scroll + i
+                if ri >= len(rows):
                     break
-                elif k in (ord('q'), 27):
-                    return
-            if not reask:
+                _draw_segments(stdscr, i, cx, w, rows[ri])
+            more = "  ▾ more" if scroll < maxscroll else ""
+            _draw_status_bar(
+                stdscr, max_y - 1, max_x,
+                f"↑/↓ scroll · a/ ask · x clear · q/Esc back{more}")
+            stdscr.refresh()
+
+            # 3) Navigate / act. _prompt_input leaves the terminal in the
+            #    marquee's non-blocking mode on exit, so re-assert blocking
+            #    input here — otherwise this loop would busy-redraw every tick.
+            try:
+                stdscr.timeout(-1)
+            except Exception:
+                pass
+            k = stdscr.getch()
+            if k in (curses.KEY_DOWN, ord('j')):
+                scroll = min(maxscroll, scroll + 1)
+            elif k in (curses.KEY_UP, ord('k')):
+                scroll = max(0, scroll - 1)
+            elif k == curses.KEY_NPAGE:
+                scroll = min(maxscroll, scroll + view)
+            elif k == curses.KEY_PPAGE:
+                scroll = max(0, scroll - view)
+            elif k in (curses.KEY_HOME, ord('g')):
+                scroll = 0
+            elif k in (curses.KEY_END, ord('G')):
+                scroll = maxscroll
+            elif k in (ord('a'), ord('/')):
+                ask_next = True
+            elif k == ord('x'):
+                turns = []                 # clear the conversation (free tokens)
+                scroll = 0
+            elif k in (ord('q'), 27):
+                return
+    finally:
+        _restore_timeout(stdscr)
+
+
+def _show_chat(stdscr, state):
+    """Chat-with-your-feed overlay: ask across ALL currently visible stories.
+
+    Multi-turn — follow-ups carry the conversation. Defensive: needs
+    ``state.client``; otherwise the caller surfaces a transient hint.
+    """
+    _chat_overlay(
+        stdscr, state, "Ask the feed: ",
+        lambda q, hist: enrich.ask_feed(
+            state.client, q, state.visible_articles(),
+            getattr(state, "theme", ""), getattr(state, "grounding", None),
+            getattr(state, "cache", None), history=hist),
+        scope="the feed",
+    )
+
+
+def _show_story_chat(stdscr, state, article, reader_data=None):
+    """Ask-about-this-story overlay: scoped to ONE article's context.
+
+    Multi-turn — follow-ups carry the conversation. Folds in the scraped
+    full-article text — reusing the story page's reader fetch when it's already
+    loaded, else lazily fetching it on the first question (both cached) — so
+    answers are grounded in the actual article, not just its RSS summary.
+    Degrades to the summary + live web search when the article can't be
+    scraped. Needs ``state.client`` (the caller checks).
+    """
+    # ``None`` = reader never attempted (fetch lazily); a dict = already tried
+    # in the story page, so trust its result and don't refetch.
+    if isinstance(reader_data, dict):
+        cached_text = {"v": (reader_data.get("text") or "")
+                       if reader_data.get("ok") else ""}
+    else:
+        cached_text = {"v": None}
+
+    def _article_text():
+        if cached_text["v"] is None:
+            text = ""
+            if getattr(config, "ENABLE_READER", True):
+                try:
+                    rd = reader.fetch_readable(
+                        getattr(article, "link", ""),
+                        getattr(state, "cache", None))
+                    if isinstance(rd, dict) and rd.get("ok"):
+                        text = rd.get("text") or ""
+                except Exception:
+                    pass
+            cached_text["v"] = text
+        return cached_text["v"]
+
+    _chat_overlay(
+        stdscr, state, "Ask about this story: ",
+        lambda q, hist: enrich.ask_story(
+            state.client, q, article, _article_text(),
+            getattr(state, "grounding", None), getattr(state, "cache", None),
+            history=hist),
+        scope="about this story",
+    )
+
+
+# ── mastery: Socratic tutor + knowledge-graph ───────────────────────────────
+_STATUS_COLOR = {
+    "mastered": colors.SENT_HYPE, "reviewing": colors.H3,
+    "encountered": colors.LINK, "unseen": colors.NORMAL,
+}
+
+
+def _score_color(score):
+    """Green / amber / red for a 0-1 understanding score."""
+    if score >= config.MASTERY_THRESHOLD:
+        return colors.SENT_HYPE
+    if score >= 0.6:
+        return colors.H3
+    return colors.SENT_CONCERN
+
+
+def _mini_bar(frac, width):
+    """A compact block bar for a 0-1 fraction."""
+    frac = max(0.0, min(1.0, float(frac or 0.0)))
+    return glyphs.bar(int(round(frac * 100)), 100, width)
+
+
+def _socratic_rows(concept, band, understanding, turns, current_probe, w):
+    """Render a Socratic session: header + graded transcript + the open probe."""
+    rows = []
+    name = concept.get("name") or concept.get("id") or "concept"
+    rows.append([(f"🎓 {name}", colors.H1)])
+    rows.append([(f"{band} · understanding {understanding:.2f}  ", colors.DATE),
+                 (_mini_bar(understanding, 16), _score_color(understanding))])
+    defn = (concept.get("definition") or "").strip()
+    if defn:
+        rows += _wrap_plain(defn, w, colors.QUOTE)
+    rows.append([("", 0)])
+
+    for t in turns:
+        g = t.get("grade") or {}
+        rows += _wrap_plain("❯ " + (t.get("probe") or ""), w, colors.H2)
+        rows += _wrap_plain("You: " + (t.get("answer") or ""), w, colors.NORMAL)
+        sc = float(g.get("score", 0.0) or 0.0)
+        rows.append([(f"Score {sc:.2f}  ", _score_color(sc)),
+                     (_mini_bar(sc, 16), _score_color(sc))])
+        if g.get("message"):
+            rows += _wrap_md(g.get("message", ""), w)
+        for cpt in g.get("correct_points") or []:
+            rows += _wrap_plain("✓ " + cpt, w, colors.SENT_HYPE)
+        for m in g.get("misconceptions") or []:
+            rows += _wrap_plain("⚠ " + m, w, colors.SENT_CONCERN)
+        if g.get("ideal_answer"):
+            rows.append([("Model answer", colors.H3)])
+            rows += _wrap_md(g.get("ideal_answer", ""), w)
+        rows.append([("─" * max(1, min(w, 48)), colors.MDRULE)])
+
+    if current_probe:
+        rows.append([("", 0)])
+        rows += _wrap_plain("❯ " + current_probe, w, colors.H2)
+    return rows
+
+
+def _show_socratic(stdscr, state, article):
+    """Socratic explain-back tutoring scoped to a story's weakest concept.
+
+    Picks the lowest-understanding concept the story is tagged with, opens with
+    an adaptive probe, then loops: you explain → the tutor grades (score + what
+    you nailed + misconceptions + a model answer + a deeper probe) → mastery is
+    updated and the concept rescheduled. ``a``/Enter answer, ↑/↓ scroll, q/Esc
+    finish. Returns ``"no-concepts"`` when the story maps to no graph concept.
+    """
+    ms = getattr(state, "mastery", None)
+    client = getattr(state, "client", None)
+    if ms is None or client is None:
+        return None
+    cids = list(getattr(article, "concepts", None) or [])
+    if not cids:
+        return "no-concepts"
+    # Target the weakest-understood tagged concept (close the biggest gap).
+    cid = sorted(cids, key=lambda c: float(
+        (ms.concepts.get(c) or {}).get("understanding", 0.0)))[0]
+    concept = mastery.get_concept(cid)
+    if not concept:
+        return "no-concepts"
+
+    ctx = {"title": getattr(article, "title", "") or "",
+           "summary": getattr(article, "summary", "") or ""}
+    history = []          # for the tutor: [{probe, answer, feedback}]
+    turns = []            # for display: [{probe, answer, grade}]
+    try:
+        stdscr.timeout(-1)
+    except Exception:
+        pass
+    try:
+        difficulty = ms.difficulty_for(cid)
+        _draw_centered_frame(stdscr, "⏳ preparing a question…")
+        opening = enrich.socratic_turn(client, concept, ctx, "", history, difficulty)
+        current_probe = (opening.get("message")
+                         or "Explain this concept in your own words.")
+        scroll = 0
+        while True:
+            band, _ = ms.difficulty_for(cid)
+            u = float((ms.concepts.get(cid) or {}).get("understanding", 0.0))
+            max_y, max_x = stdscr.getmaxyx()
+            w = max(10, min(max_x, config.WRAP_LIMIT) - 2)
+            rows = _socratic_rows(concept, band, u, turns, current_probe, w)
+            view = max(1, max_y - 1)
+            maxscroll = max(0, len(rows) - view)
+            scroll = max(0, min(scroll, maxscroll))
+            stdscr.erase()
+            cx = max(0, (max_x - w) // 2)
+            for i in range(view):
+                ri = scroll + i
+                if ri >= len(rows):
+                    break
+                _draw_segments(stdscr, i, cx, w, rows[ri])
+            done_hint = "" if current_probe else "  (no further probe)"
+            _draw_status_bar(stdscr, max_y - 1, max_x,
+                             f"a/Enter answer · ↑/↓ scroll · q/Esc finish{done_hint}")
+            stdscr.refresh()
+            try:
+                stdscr.timeout(-1)
+            except Exception:
+                pass
+            k = stdscr.getch()
+            if k in (curses.KEY_DOWN, ord('j')):
+                scroll = min(maxscroll, scroll + 1)
+            elif k in (curses.KEY_UP, ord('k')):
+                scroll = max(0, scroll - 1)
+            elif k == curses.KEY_NPAGE:
+                scroll = min(maxscroll, scroll + view)
+            elif k == curses.KEY_PPAGE:
+                scroll = max(0, scroll - view)
+            elif k in (curses.KEY_HOME, ord('g')):
+                scroll = 0
+            elif k in (curses.KEY_END, ord('G')):
+                scroll = maxscroll
+            elif k in (ord('a'), ord(' '), 10, 13, curses.KEY_ENTER):
+                answer = _prompt_input(stdscr, "Explain (Enter submit · Esc cancel): ")
+                if not answer:
+                    continue
+                _draw_centered_frame(stdscr, "⏳ grading…")
+                difficulty = ms.difficulty_for(cid)
+                grade = enrich.socratic_turn(client, concept, ctx, answer,
+                                             history, difficulty)
+                try:
+                    ms.record_attempt(cid, grade.get("score", 0.0),
+                                      grade.get("misconceptions"))
+                except Exception:  # noqa: BLE001 - never crash the TUI
+                    pass
+                history.append({"probe": current_probe, "answer": answer,
+                                "feedback": grade.get("message", "")})
+                turns.append({"probe": current_probe, "answer": answer,
+                              "grade": grade})
+                current_probe = grade.get("followup") or ""
+                scroll = 10 ** 9          # clamp to bottom: show newest feedback
+            elif k in (ord('q'), 27):
+                return None
+    finally:
+        _restore_timeout(stdscr)
+
+
+def _knowledge_rows(ms, w):
+    """Render the knowledge-graph coverage map (categories → concepts)."""
+    from .concepts_seed import CONCEPTS, CATEGORY_ORDER, CATEGORIES
+    cov = ms.coverage()
+    now = time.time()
+    rows = [[("🗺️  KNOWLEDGE MAP", colors.H1)]]
+    rows.append([(f"level {cov['level']:.2f}   ·   {cov['mastered']}/{cov['total']} "
+                  f"mastered   ·   {cov['encountered']} encountered   ·   "
+                  f"{cov['due']} due for review", colors.DATE)])
+    rows.append([("○ unseen  ◔ encountered  ◑ reviewing  ● mastered  ⏰ due",
+                  colors.QUOTE)])
+    rows.append([("", 0)])
+
+    by_cat = {}
+    for c in CONCEPTS:
+        by_cat.setdefault(c.get("category"), []).append(c)
+
+    for cat in CATEGORY_ORDER:
+        items = by_cat.get(cat) or []
+        if not items:
+            continue
+        label, emoji = CATEGORIES.get(cat, (cat, "•"))
+        b = cov["categories"].get(cat, {})
+        rows.append([("", 0)])
+        rows.append([(f"{emoji} {label}", colors.H2),
+                     (f"   {b.get('mastered', 0)}/{b.get('total', 0)} mastered  ",
+                      colors.NORMAL),
+                     (_mini_bar(b.get("mean_u", 0.0), 16), colors.BANNER)])
+        for c in sorted(items, key=lambda x: (x.get("tier", ""), x.get("name", ""))):
+            v = ms.concept_view(c["id"]) or {}
+            status = v.get("status", "unseen")
+            u = float(v.get("understanding", 0.0))
+            glyph = mastery.STATUS_GLYPH.get(status, "○")
+            gcol = _STATUS_COLOR.get(status, colors.NORMAL)
+            due = v.get("due")
+            overdue = v.get("attempts", 0) > 0 and (due is None or due <= now)
+            name = textwidth.clip(c.get("name", ""), max(10, w - 40))
+            rows.append([
+                (f"  {glyph} ", gcol),
+                (name, colors.NORMAL),
+                ("   ", 0),
+                (_mini_bar(u, 10), gcol),
+                (f"  {c.get('tier', '')}", colors.DATE),
+                ("  ⏰" if overdue else "", colors.SENT_CONCERN),
+            ])
+    return rows
+
+
+def _show_knowledge_graph(stdscr, state):
+    """Scrollable knowledge-graph coverage map (key ``K``)."""
+    ms = getattr(state, "mastery", None)
+    if ms is None:
+        return
+    try:
+        stdscr.timeout(-1)
+    except Exception:
+        pass
+    scroll = 0
+    try:
+        while True:
+            max_y, max_x = stdscr.getmaxyx()
+            w = max(10, min(max_x, config.WRAP_LIMIT) - 2)
+            rows = _knowledge_rows(ms, w)
+            view = max(1, max_y - 1)
+            maxscroll = max(0, len(rows) - view)
+            scroll = max(0, min(scroll, maxscroll))
+            stdscr.erase()
+            cx = max(0, (max_x - w) // 2)
+            for i in range(view):
+                ri = scroll + i
+                if ri >= len(rows):
+                    break
+                _draw_segments(stdscr, i, cx, w, rows[ri])
+            more = "  ▾ more" if scroll < maxscroll else ""
+            _draw_status_bar(stdscr, max_y - 1, max_x,
+                             f"↑/↓ scroll · q/Esc back{more}")
+            stdscr.refresh()
+            k = stdscr.getch()
+            if k in (curses.KEY_DOWN, ord('j')):
+                scroll = min(maxscroll, scroll + 1)
+            elif k in (curses.KEY_UP, ord('k')):
+                scroll = max(0, scroll - 1)
+            elif k == curses.KEY_NPAGE:
+                scroll = min(maxscroll, scroll + view)
+            elif k == curses.KEY_PPAGE:
+                scroll = max(0, scroll - view)
+            elif k in (curses.KEY_HOME, ord('g')):
+                scroll = 0
+            elif k in (curses.KEY_END, ord('G')):
+                scroll = maxscroll
+            elif k in (ord('q'), 27):
                 return
     finally:
         _restore_timeout(stdscr)
@@ -777,34 +1160,39 @@ def curses_main(stdscr, state):
         stdscr.erase()  # fresh frame (also wipes any returned-from modal remnants)
 
         # --- layout: marquee, banner, theme/context, then the two panes -------
+        # Inset everything by a horizontal margin so the panels don't sit flush
+        # against the terminal edges (dropped to 0 when the terminal is narrow).
         content_h = max_y - 1            # reserve bottom row for status bar
+        margin = config.UI_MARGIN if max_x >= 2 * config.UI_MARGIN + 30 else 0
+        x0 = margin
+        cw = max_x - 2 * margin          # usable content width inside the margins
         y = 0
         ribbon = list(getattr(state, "leaderboard", None) or [])
         if not ribbon and state.headline_of_day:
             ribbon = [state.headline_of_day]
         if ribbon and content_h - y > MIN_BROWSER_H + 1:
             _draw_marquee(stdscr, y, ribbon,
-                          min(max_x, config.WRAP_LIMIT), marquee_offset)
+                          min(cw, config.WRAP_LIMIT), marquee_offset, x0=x0)
             y += 1
         if content_h - y >= MIN_BROWSER_H + 3:
-            _draw_banner(stdscr, y, max_x, state)
+            _draw_banner(stdscr, y, cw, state, x0=x0)
             y += 3
         if content_h - y >= MIN_BROWSER_H + 6:
             th = min(THEME_PANEL_MAX, content_h - y - MIN_BROWSER_H)
             th = max(4, th)
-            _draw_theme_context(stdscr, y, max_x, th, state)
+            _draw_theme_context(stdscr, y, cw, th, state, x0=x0)
             y += th
 
         browser_y = y
         browser_h = max(2, content_h - y)
 
         # left (topics) + right (stories)
-        lw = min(30, max(18, max_x // 4))
-        rw = max_x - lw
+        lw = min(30, max(18, cw // 4))
+        rw = cw - lw
         left_focus = focus == "left"
         topic_rows = _topic_rows(state, groups)
         ti_y, ti_x, ti_w, ti_h = _draw_box(
-            stdscr, browser_y, 0, lw, browser_h, title="TOPICS",
+            stdscr, browser_y, x0, lw, browser_h, title="TOPICS",
             title_color=colors.BANNER,
             border_color=colors.MARQUEE_LABEL if left_focus else colors.NORMAL,
             style="round")
@@ -818,7 +1206,7 @@ def curses_main(stdscr, state):
         cur_emoji = state.topic_emojis.get(cur_topic) or glyphs.topic_emoji(cur_topic)
         s_title = f"{cur_emoji} {cur_topic} ({len(cur_stories)})"
         si_y, si_x, si_w, si_h = _draw_box(
-            stdscr, browser_y, lw, rw, browser_h, title=s_title,
+            stdscr, browser_y, x0 + lw, rw, browser_h, title=s_title,
             title_color=cur_cid,
             border_color=colors.MARQUEE_LABEL if not left_focus else colors.NORMAL,
             style="round")
@@ -917,6 +1305,39 @@ def curses_main(stdscr, state):
             else:
                 try:
                     _show_chat(stdscr, state)
+                except Exception:
+                    pass
+                finally:
+                    _restore_timeout(stdscr)
+                dirty = True
+
+        # --- Socratic study (explain-back on the selected story) -------------
+        elif key == ord('s') and getattr(config, "ENABLE_MASTERY", True):
+            if getattr(state, "mastery", None) is None:
+                transient = "Mastery layer is disabled"
+            elif getattr(state, "client", None) is None:
+                transient = "Socratic tutor needs an API key"
+            elif not (cur_stories and 0 <= story_idx < len(cur_stories)):
+                transient = "Select a story to study"
+            else:
+                result = None
+                try:
+                    result = _show_socratic(stdscr, state, cur_stories[story_idx])
+                except Exception:
+                    pass
+                finally:
+                    _restore_timeout(stdscr)
+                if result == "no-concepts":
+                    transient = "No graph concepts in this story — try another"
+                dirty = True
+
+        # --- knowledge-graph coverage map ------------------------------------
+        elif key == ord('K') and getattr(config, "ENABLE_MASTERY", True):
+            if getattr(state, "mastery", None) is None:
+                transient = "Mastery layer is disabled"
+            else:
+                try:
+                    _show_knowledge_graph(stdscr, state)
                 except Exception:
                     pass
                 finally:
@@ -1137,12 +1558,19 @@ def _show_help(stdscr):
         "Story",
         "  Space / Enter    open the story page",
         "    in page:  o/Enter open in browser · r read full article",
+        "              a ask about THIS story — scoped, cited, multi-turn",
         "              ↑/↓ scroll · b ★ · ←/Esc back",
         "  b                toggle ★ bookmark on selected story",
         "  m                toggle read/unread on selected story",
         "",
+        "Mastery (deliberate practice)",
+        "  s                Socratic study — explain the selected story's concept;",
+        "                   the tutor grades you & tracks understanding (adaptive)",
+        "  K                knowledge map — concept coverage & what's due to review",
+        "",
         "Views & filters",
-        "  a                chat-with-your-feed (ask a question, cited answer)",
+        "  a                chat-with-your-feed — ask across ALL stories, cited",
+        "                   (multi-turn: a or / follow-up · x clear · q close)",
         "  t                overview (full theme / live context / mix)",
         "  /                fuzzy search (space-separated terms)",
         "  f                filter by source",

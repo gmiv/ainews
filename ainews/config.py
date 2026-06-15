@@ -65,6 +65,26 @@ CHAT_VERBOSITY = "medium"
 # budget, so too small a cap can leave zero visible answer.
 CHAT_MAX_TOKENS = 4000
 
+# Ask-about-this-story (the 'a' overlay INSIDE the story page). Same cheap model
+# as feed chat, but scoped to a single article — its summary, the scraped
+# full-article text when available, and any grounded context — with live web
+# search to fill gaps. Gated by the same ENABLE_CHAT flag as feed chat.
+STORY_CHAT_MODEL = "gpt-5.4-mini"
+STORY_CHAT_EFFORT = "medium"
+STORY_CHAT_VERBOSITY = "medium"
+STORY_CHAT_MAX_TOKENS = 4000
+# How much of a scraped full article to fold into the prompt (chars) so a long
+# read can't blow the token budget; the tail is trimmed with an ellipsis.
+STORY_CHAT_MAX_ARTICLE_CHARS = 6000
+
+# Multi-turn chat memory (shared by BOTH the feed-wide and story-scoped 'a'
+# overlays). Each overlay keeps a running, on-screen conversation and re-sends
+# prior turns to the model so follow-ups understand context; 'x' clears it.
+# These caps bound the re-sent context so a long chat can't blow the token
+# budget — clearing is the primary lever, these are the safety net.
+CHAT_HISTORY_MAX_TURNS = 10        # most-recent Q&A turns re-sent as context
+CHAT_HISTORY_ANSWER_CHARS = 1200   # truncate each PRIOR answer in that context
+
 # Hybrid importance score (theme-centrality, corroboration, recency, authority).
 IMPORTANCE_WEIGHTS = (0.50, 0.30, 0.12, 0.08)
 IMPORTANCE_TOP_K = 6          # shortlist size handed to the LLM judge
@@ -130,57 +150,99 @@ USER_AGENT = (
     "ai_news_feed/2.0 Safari/537.36"
 )
 
+# --- Mastery (deliberate-practice layer: Socratic tutor + knowledge graph) --
+# Turns the feed into deliberate practice: stories are tagged to a concept
+# knowledge-graph, the Socratic tutor grades your explanations, and per-concept
+# "understanding" drives adaptive difficulty + spaced review.
+ENABLE_MASTERY = True
+MASTERY_FILE = os.path.join(CACHE_DIR, "mastery.json")
+
+# Understanding is an EWMA of graded explanations in [0, 1].
+MASTERY_EWMA_ALPHA = 0.4
+MASTERY_THRESHOLD = 0.85       # understanding ≥ this (with enough attempts) = mastered
+MASTERY_RELAPSE = 0.55         # a graded attempt below this lapses a mastered concept
+MASTERY_MIN_ATTEMPTS = 2       # graded attempts before a concept can be "mastered"
+MASTERY_MAX_MISCONCEPTIONS = 8 # cap stored misconceptions per concept
+
+# Spaced review of concepts (SM-2-ish), in days.
+MASTERY_FIRST_INTERVAL = 1.0
+MASTERY_EASE_START = 2.3
+MASTERY_EASE_MIN = 1.3
+MASTERY_EASE_MAX = 2.8
+
+# Socratic tutor LLM call (explain-back grading). A cheap, capable model.
+SOCRATIC_MODEL = "gpt-5.4-mini"
+SOCRATIC_EFFORT = "medium"
+SOCRATIC_VERBOSITY = "medium"
+SOCRATIC_MAX_TOKENS = 3000
+
 # --- UI ---------------------------------------------------------------------
 WRAP_LIMIT = 150
+# Horizontal breathing room (columns) kept on each side of the home browser so
+# the panels don't sit flush against the terminal edges. Dropped to 0 on very
+# narrow terminals so the layout still fits.
+UI_MARGIN = 2
 
 # --- Feeds ------------------------------------------------------------------
+# Curated to be PREDOMINANTLY about AI / machine learning. Every URL below was
+# fetch-verified live + AI-specific; general whole-site / mixed-tech feeds
+# (Engadget, Slashdot main, the Hacker News frontpage, ZDNet, TechNode, the
+# Simon Willison "everything" feed) were dropped in favor of AI-tagged feeds,
+# AI-filtered Hacker News searches, lab blogs, and ML newsletters.
 AI_NEWS_FEEDS = [
-    # Core Technology Publications
+    # AI news publications (AI-tagged sections)
     "https://www.technologyreview.com/topic/artificial-intelligence/feed/",
     "https://techcrunch.com/tag/artificial-intelligence/feed/",
     "https://arstechnica.com/ai/feed/",
     "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
     "https://www.wired.com/feed/tag/ai/latest/rss",
     "https://www.theregister.com/software/ai_ml/headlines.atom",
-    "https://www.engadget.com/rss.xml",
     "https://spectrum.ieee.org/feeds/topic/artificial-intelligence.rss",
+    "https://www.artificialintelligence-news.com/feed/",
+    "https://syncedreview.com/feed/",
+    "https://www.marktechpost.com/feed/",
 
-    # General Tech & Community (broad coverage, AI surfaces often)
-    "https://rss.slashdot.org/Slashdot/slashdotMain",
-    "https://hnrss.org/frontpage",
-    "https://www.zdnet.com/topic/artificial-intelligence/rss.xml",
+    # Community, AI-filtered (Hacker News keyword searches)
+    "https://hnrss.org/newest?q=AI",
+    "https://hnrss.org/newest?q=LLM",
 
-    # Research Institutions & Corporate Blogs
+    # Research labs & big-tech AI blogs
+    "https://openai.com/news/rss.xml",
     "https://deepmind.google/blog/rss.xml",
     "https://blog.google/technology/ai/rss/",
-    "https://bair.berkeley.edu/blog/feed.xml",
-    "https://openai.com/news/rss.xml",
+    "https://blog.research.google/feeds/posts/default",
     "https://huggingface.co/blog/feed.xml",
+    "https://mistral.ai/rss.xml",
+    "https://www.together.ai/blog/rss.xml",
     "https://blogs.nvidia.com/blog/category/deep-learning/feed/",
+    "https://aws.amazon.com/blogs/machine-learning/feed/",
     "https://www.microsoft.com/en-us/research/feed/",
 
-    # Industry Analysis & Market Trends
-    "https://www.marktechpost.com/feed/",
-    "https://www.kdnuggets.com/feed",
-    "https://towardsdatascience.com/feed",
-    "https://syncedreview.com/feed/",
-
-    # Independent Analysts & Newsletters
-    "https://simonwillison.net/atom/everything/",
+    # Research institutions & academia
+    "https://bair.berkeley.edu/blog/feed.xml",
+    "https://news.mit.edu/topic/mitmachine-learning-rss.xml",
+    "https://www.sciencedaily.com/rss/computers_math/artificial_intelligence.xml",
     "https://thegradient.pub/rss/",
-    "https://importai.substack.com/feed",
-    "https://www.latent.space/feed",
-
-    # Academic & Technical Resources
     "http://export.arxiv.org/rss/cs.AI",
     "http://export.arxiv.org/rss/cs.LG",
-    "https://www.sciencedaily.com/rss/computers_math/artificial_intelligence.xml",
-    "https://news.mit.edu/topic/mitmachine-learning-rss.xml",
+    "http://export.arxiv.org/rss/cs.CL",
 
-    # Regional Coverage
-    "https://technode.com/feed/",
+    # Independent analysts & newsletters
+    "https://importai.substack.com/feed",
+    "https://www.latent.space/feed",
+    "https://sebastianraschka.substack.com/feed",
+    "https://lastweekin.ai/feed",
+    "https://www.interconnects.ai/feed",
+    "https://aiweekly.co/feed",
 
-    # Optional Technical Deep Dives
-    # "https://blog.tensorflow.org/feed.xml",
+    # Data science & ML practitioners
+    "https://www.kdnuggets.com/feed",
+    "https://towardsdatascience.com/feed",
+    "https://machinelearningmastery.com/feed/",
+    "https://www.analyticsvidhya.com/feed/",
+
+    # Optional technical deep dives (uncomment to enable)
+    # "http://export.arxiv.org/rss/cs.CV",     # computer vision (high volume)
+    # "http://export.arxiv.org/rss/stat.ML",   # ML statistics (high volume)
     # "https://pytorch.org/feed/",
 ]

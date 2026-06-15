@@ -4,12 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ainews"
-description = "A colorful, AI-enriched terminal news reader (curses TUI) powered by GPT-5.4."
+description = "A colorful, AI-enriched terminal news reader (curses TUI) with a Socratic mastery tutor, powered by GPT-5.4."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "gmo" }]
-keywords = ["news", "rss", "tui", "curses", "ai", "gpt", "terminal", "aggregator"]
+keywords = ["news", "rss", "tui", "curses", "ai", "gpt", "terminal", "aggregator",
+            "machine-learning", "learning", "spaced-repetition", "knowledge-graph"]
 dynamic = ["version"]
 dependencies = [
     "feedparser>=6.0",

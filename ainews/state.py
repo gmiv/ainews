@@ -30,7 +30,7 @@ class FeedState:
     def __init__(self, articles, source_counts, top_words,
                  theme="", one_word="", grounding=None, store=None,
                  headline_of_day=None, cache=None, leaderboard=None,
-                 client=None):
+                 client=None, mastery=None):
         # Defensive normalisation: tolerate None for any of the collections.
         self.articles = list(articles or [])
         self.source_counts = source_counts or {}
@@ -48,6 +48,9 @@ class FeedState:
         # marquee/overview, and the optional LLM client used by the chat overlay.
         self.leaderboard = list(leaderboard or [])
         self.client = client
+        # The deliberate-practice layer (mastery.MasteryStore) — the Socratic
+        # tutor + knowledge-graph read/write it. Optional; None disables them.
+        self.mastery = mastery
 
         # Reflect any persisted bookmarks / read-state onto the in-memory
         # articles so markers and the unread/bookmarks filters are correct on
